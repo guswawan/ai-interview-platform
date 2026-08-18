@@ -4,7 +4,7 @@
 **Submission date:** 19 August 2026
 **Engineering depth claim:** Backend-heavy (data integrity + service logic), with a supporting frontend module (honest unassessed states + corrected fit/gap rendering).
 
-**PR link:** https://github.com/rakamindev/ai-interview-platform/pull/… (open)
+**PR link:** https://github.com/rakamindev/ai-interview-platform/pull/63
 
 ---
 
