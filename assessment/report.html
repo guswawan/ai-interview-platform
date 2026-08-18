@@ -124,9 +124,16 @@ ai_level: skill_data['level'].to_i.clamp(1, 5)   # nil.to_i == 0 → clamp → 1
 <td>Fit/gap page showed only one of the two narratives; nothing when generation failed</td>
 <td>Loses the overall recommendation in the common single-narrative case</td>
 </tr>
+<tr>
+<td>F9</td>
+<td><strong>P1</strong></td>
+<td>api</td>
+<td>WebSocket middleware classes crash app boot under <code>config.eager_load = true</code> (CI, <strong>production</strong>) — Zeitwerk inflects <code>audio_websocket_middleware.rb</code> → <code>AudioWebsocketMiddleware</code> (lowercase s) but the class is <code>AudioWebSocketMiddleware</code>, and the constants were referenced from <code>config/initializers/*.rb</code> before autoloads were wired</td>
+<td><strong>Dev-only deployment would crash at boot right after deploy</strong> — no assessment creation, no interviews, total outage; only masked locally because <code>development</code> uses <code>eager_load = false</code></td>
+</tr>
 </tbody>
 </table>
-<p><strong>Missing-spec vs defective-implementation:</strong> F1/F4/F8 are <em>defective implementations</em> (the PRD specifies confidence rules and wrap-up flow; the code contradicts them). F2/F5/F6 are <em>missing contracts</em> — the API and UI never agreed on a payload shape, and nothing enforced an agenda.</p>
+<p><strong>Missing-spec vs defective-implementation:</strong> F1/F4/F8/F9 are <em>defective implementations</em> (the PRD specifies confidence rules and wrap-up flow; the code contradicts them — and F9 was a silent production landmine hidden by the dev-only <code>eager_load = false</code>). F2/F5/F6 are <em>missing contracts</em> — the API and UI never agreed on a payload shape, and nothing enforced an agenda.</p>
 <p><strong>Constraint signal (what I'd escalate to a Tech Lead):</strong> the shared JWT <code>SECRET_KEY_BASE</code> contract with <code>rakamin-api</code> and the absence of a Gemini API key in my environment meant I could not exercise the live audio path end-to-end; I verified all changes through the service layer with stubbed Gemini clients and seeded DB records, which is exactly the seam the product is missing (no model-level tests existed).</p>
 <h3>1.4 Revamp Strategy, Acceptance Criteria &amp; Trade-offs (Step 4)</h3>
 <p><strong>Goal:</strong> make every number in the portfolio and fit/gap report <em>honest and traceable</em>, and make the reports render that truth.</p>
@@ -186,7 +193,7 @@ ai_level: skill_data['level'].to_i.clamp(1, 5)   # nil.to_i == 0 → clamp → 1
 <li>All the above are covered by automated tests that <strong>fail first</strong> when the logic is broken (seeded fault demo).</li>
 </ol>
 <h3>1.5 Monozukuri Implementation &amp; Pull Request (Step 5)</h3>
-<p>Implemented across 4 commits (see PR):</p>
+<p>Implemented across 12 commits (see PR #63):</p>
 <ol>
 <li><strong>Data model</strong> — <code>AddAssessedToPortfolioSkills</code> migration (reversible; <code>assessed</code> default true so existing rows are safe; check constraint <code>NOT assessed OR ai_level IS NULL OR (ai_level 1..5)</code>); <code>PortfolioSkill</code> validations scoped to assessed rows; <code>Assessment</code> requires ≥ 1 skill; <code>TenantScoped</code> nil-tenant hardening.</li>
 <li><strong>Service layer</strong> — generator reconciles every configured skill: rateable → assessed; missing/unrateable → <code>assessed: false</code> (never a fabricated L1, never a crash). Fit/gap engine reports <code>not_assessed</code> for unassessed rows and exposes <code>assessed</code>/<code>overridden</code>. PDF export renders "Not assessed during this session".</li>
@@ -196,15 +203,26 @@ ai_level: skill_data['level'].to_i.clamp(1, 5)   # nil.to_i == 0 → clamp → 1
 </ol>
 <h3>1.6 Verification (Step 6)</h3>
 <ul>
-<li><code>bundle exec rspec</code> → <strong>22 examples, 0 failures</strong>.</li>
+<li><code>bundle exec rspec</code> → <strong>22 examples, 0 failures</strong> (verified under both <code>development</code>-style lazy loading <strong>and</strong> <code>CI=true</code> eager loading — the CI configuration that exposed F9).</li>
+<li><code>RAILS_ENV=test CI=true</code> boot smoke test → app boots with <code>config.eager_load = true</code>; middleware stack contains <code>AudioWebSocketMiddleware</code> / <code>CoverageWebSocketMiddleware</code> before <code>TenantResolverMiddleware</code>.</li>
 <li><code>npm run test</code> → <strong>10 passed</strong>; <code>tsc --noEmit</code> clean; <code>vite build</code> clean.</li>
 <li>Ran both services, seeded a realistic end-to-end scenario (3 configured skills: one match, one <strong>not assessed</strong>, one overridden L2→L3, one discovered skill), and verified the rendered DOM on the portfolio and fit/gap pages.</li>
+<li>GitHub Actions CI (fork): <strong>API (RSpec) ✓ and Web (Vitest + tsc) ✓ green</strong>; GitGuardian secret scan ✓.</li>
 </ul>
 <h4>Seeded Fault Test (proof the tests are real)</h4>
 <p>On a scratch branch I reintroduced the old bug (<code>return [1, 'low']</code> for missing skill data — the fabricated-L1 path):</p>
 <pre><code>3 examples, 3 failures
 </code></pre>
 <p>The generator specs failed immediately, proving they guard the invariant. The fault branch was then deleted and the feature branch re-verified green.</p>
+<p><strong>F9 — production boot crash (found only because CI was added).</strong> The brief's baseline had no CI, so this could never have been caught. When I added the GitHub Actions workflow (which sets <code>config.eager_load = true</code> in <code>test</code> via <code>CI</code>), the API job crashed at boot:</p>
+<pre><code>NameError: uninitialized constant AudioWebsocketMiddleware
+# zeitwerk/cref.rb:62 in `const_get'  (during Rails eager loading)
+</code></pre>
+<p>Root cause, unpacked with the failing job + a local <code>CI=true</code> reproduction:
+1. <strong>Zeitwerk inflection mismatch.</strong> <code>app/channels/audio_websocket_middleware.rb</code> is inflected to <code>AudioWebsocketMiddleware</code> (lowercase <em>s</em>), but the class is defined and referenced everywhere as <code>AudioWebSocketMiddleware</code> (capital <em>S</em>). Under <code>eager_load</code>, Zeitwerk does <code>const_get(:AudioWebsocketMiddleware)</code> → uninitialized → boot fails. It never surfaced locally because <code>development</code> sets <code>eager_load = false</code>, so the manual <code>require_relative</code> in the initializer quietly masked it. <strong>Production boots with <code>eager_load = true</code> — this was a deploy-time outage waiting to happen.</strong>
+2. <strong>Unsafe constant references from <code>config/initializers/*.rb</code>.</strong> Referencing these middleware classes from an initializer is a Rails footgun (autoloads are not yet wired at that point).</p>
+<p>Fix: added the <code>WebSocket</code> acronym inflection (<code>config/initializers/inflections.rb</code>) so Zeitwerk maps the file to the real constant, and moved the <code>require_relative</code> + <code>insert_before</code> into <code>config/application.rb</code> (mirroring how <code>TenantResolverMiddleware</code> is already loaded), deleting the initializer. Verified by booting with <code>RAILS_ENV=test CI=true</code> (eager_load on) and asserting the middleware stack contains <code>AudioWebSocketMiddleware</code> before <code>TenantResolverMiddleware</code>.</p>
+<p><strong>Bonus integrity check that the CI caught:</strong> a single-line seeded fault (<code>return [1, 'low']</code>) leaked from the fault-demo scratch branch into the committed generator; the RSpec suite failed 3/3 on CI exactly on the fabricated-L1 path, it was removed, and CI went green — independent proof the tests genuinely guard the invariant.</p>
 <h4>AI Verification Moment</h4>
 <p>I used AI assistance (this session's tooling) to draft the <code>ComparisonTable</code> fix. The first draft referenced a variable named <code>comparison</code> that did not exist in the row-map scope (<code>comparison.expected_level</code> instead of <code>c.expected_level</code>) — it compiled nowhere and the Vitest run failed. <strong>Verification step:</strong> I did not accept the generated code; I ran the frontend suite and TypeScript, the failure surfaced the undefined reference, and I corrected it to the actual scoped variable. A second AI-suggested spec assertion (<code>resolve_state</code> expected <code>'initiated'</code>) was also proven wrong by executing the suite and fixed to the true behavior (<code>'partial'</code>). Both corrections are visible in the test files and this narrative. This is the exact "use AI as leverage you verify, not an oracle you trust" behavior the brief asks for.</p>
 <h2>2. Screenshots</h2>

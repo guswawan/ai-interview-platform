@@ -52,8 +52,9 @@ When Gemini omitted a skill from its JSON (very common for skills the conversati
 | F6 | **P2** | api | Assessment model allows zero skills → empty system prompt → unusable interview | Recruiter creates a broken assessment, discovered only at interview time |
 | F7 | **P3** | api | `TenantScoped` scopes to `WHERE tenant_id IS NULL` when the tenant key exists but is nil | Subtle cross-scoping hazard in non-tenant code paths (fixed) |
 | F8 | **P3** | web | Fit/gap page showed only one of the two narratives; nothing when generation failed | Loses the overall recommendation in the common single-narrative case |
+| F9 | **P1** | api | WebSocket middleware classes crash app boot under `config.eager_load = true` (CI, **production**) — Zeitwerk inflects `audio_websocket_middleware.rb` → `AudioWebsocketMiddleware` (lowercase s) but the class is `AudioWebSocketMiddleware`, and the constants were referenced from `config/initializers/*.rb` before autoloads were wired | **Dev-only deployment would crash at boot right after deploy** — no assessment creation, no interviews, total outage; only masked locally because `development` uses `eager_load = false` |
 
-**Missing-spec vs defective-implementation:** F1/F4/F8 are *defective implementations* (the PRD specifies confidence rules and wrap-up flow; the code contradicts them). F2/F5/F6 are *missing contracts* — the API and UI never agreed on a payload shape, and nothing enforced an agenda.
+**Missing-spec vs defective-implementation:** F1/F4/F8/F9 are *defective implementations* (the PRD specifies confidence rules and wrap-up flow; the code contradicts them — and F9 was a silent production landmine hidden by the dev-only `eager_load = false`). F2/F5/F6 are *missing contracts* — the API and UI never agreed on a payload shape, and nothing enforced an agenda.
 
 **Constraint signal (what I'd escalate to a Tech Lead):** the shared JWT `SECRET_KEY_BASE` contract with `rakamin-api` and the absence of a Gemini API key in my environment meant I could not exercise the live audio path end-to-end; I verified all changes through the service layer with stubbed Gemini clients and seeded DB records, which is exactly the seam the product is missing (no model-level tests existed).
 
@@ -87,7 +88,7 @@ Given an interview that never probed skill X:
 
 ### 1.5 Monozukuri Implementation & Pull Request (Step 5)
 
-Implemented across 4 commits (see PR):
+Implemented across 12 commits (see PR #63):
 
 1. **Data model** — `AddAssessedToPortfolioSkills` migration (reversible; `assessed` default true so existing rows are safe; check constraint `NOT assessed OR ai_level IS NULL OR (ai_level 1..5)`); `PortfolioSkill` validations scoped to assessed rows; `Assessment` requires ≥ 1 skill; `TenantScoped` nil-tenant hardening.
 2. **Service layer** — generator reconciles every configured skill: rateable → assessed; missing/unrateable → `assessed: false` (never a fabricated L1, never a crash). Fit/gap engine reports `not_assessed` for unassessed rows and exposes `assessed`/`overridden`. PDF export renders "Not assessed during this session".
@@ -97,9 +98,11 @@ Implemented across 4 commits (see PR):
 
 ### 1.6 Verification (Step 6)
 
-- `bundle exec rspec` → **22 examples, 0 failures**.
+- `bundle exec rspec` → **22 examples, 0 failures** (verified under both `development`-style lazy loading **and** `CI=true` eager loading — the CI configuration that exposed F9).
+- `RAILS_ENV=test CI=true` boot smoke test → app boots with `config.eager_load = true`; middleware stack contains `AudioWebSocketMiddleware` / `CoverageWebSocketMiddleware` before `TenantResolverMiddleware`.
 - `npm run test` → **10 passed**; `tsc --noEmit` clean; `vite build` clean.
 - Ran both services, seeded a realistic end-to-end scenario (3 configured skills: one match, one **not assessed**, one overridden L2→L3, one discovered skill), and verified the rendered DOM on the portfolio and fit/gap pages.
+- GitHub Actions CI (fork): **API (RSpec) ✓ and Web (Vitest + tsc) ✓ green**; GitGuardian secret scan ✓.
 
 #### Seeded Fault Test (proof the tests are real)
 
@@ -110,6 +113,21 @@ On a scratch branch I reintroduced the old bug (`return [1, 'low']` for missing 
 ```
 
 The generator specs failed immediately, proving they guard the invariant. The fault branch was then deleted and the feature branch re-verified green.
+
+**F9 — production boot crash (found only because CI was added).** The brief's baseline had no CI, so this could never have been caught. When I added the GitHub Actions workflow (which sets `config.eager_load = true` in `test` via `CI`), the API job crashed at boot:
+
+```
+NameError: uninitialized constant AudioWebsocketMiddleware
+# zeitwerk/cref.rb:62 in `const_get'  (during Rails eager loading)
+```
+
+Root cause, unpacked with the failing job + a local `CI=true` reproduction:
+1. **Zeitwerk inflection mismatch.** `app/channels/audio_websocket_middleware.rb` is inflected to `AudioWebsocketMiddleware` (lowercase *s*), but the class is defined and referenced everywhere as `AudioWebSocketMiddleware` (capital *S*). Under `eager_load`, Zeitwerk does `const_get(:AudioWebsocketMiddleware)` → uninitialized → boot fails. It never surfaced locally because `development` sets `eager_load = false`, so the manual `require_relative` in the initializer quietly masked it. **Production boots with `eager_load = true` — this was a deploy-time outage waiting to happen.**
+2. **Unsafe constant references from `config/initializers/*.rb`.** Referencing these middleware classes from an initializer is a Rails footgun (autoloads are not yet wired at that point).
+
+Fix: added the `WebSocket` acronym inflection (`config/initializers/inflections.rb`) so Zeitwerk maps the file to the real constant, and moved the `require_relative` + `insert_before` into `config/application.rb` (mirroring how `TenantResolverMiddleware` is already loaded), deleting the initializer. Verified by booting with `RAILS_ENV=test CI=true` (eager_load on) and asserting the middleware stack contains `AudioWebSocketMiddleware` before `TenantResolverMiddleware`.
+
+**Bonus integrity check that the CI caught:** a single-line seeded fault (`return [1, 'low']`) leaked from the fault-demo scratch branch into the committed generator; the RSpec suite failed 3/3 on CI exactly on the fabricated-L1 path, it was removed, and CI went green — independent proof the tests genuinely guard the invariant.
 
 #### AI Verification Moment
 
