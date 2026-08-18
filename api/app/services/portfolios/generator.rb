@@ -217,7 +217,7 @@ module Portfolios
 
     # Returns [level, confidence] only when both are valid; [nil, nil] otherwise.
     def parse_rating(skill_data)
-      return [1, 'low'] unless skill_data # SEEDED FAULT: fabricate an L1
+      return [nil, nil] unless skill_data
 
       level = skill_data['level'].to_i
       level = nil unless (1..5).cover?(level)
