@@ -40,7 +40,9 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3.2"
-          bundler-cache: true
+      - name: Install gems
+        working-directory: api
+        run: bundle install
       - name: Prepare config
         run: |
           cp config/application.yml.sample config/application.yml
