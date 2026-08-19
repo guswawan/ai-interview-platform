@@ -165,4 +165,4 @@ I used AI assistance (this session's tooling) to draft the `ComparisonTable` fix
 
 Video (3–5 min) recorded via Loom/Drive: end-to-end flow — assessment → invite → monitor → portfolio (unassessed/overridden states) → fit/gap → export.
 
-**Link:** *[insert Loom/Drive link here]*
+**Link:** https://www.loom.com/share/87e242ffc42d4e428cae11895828ca7b
