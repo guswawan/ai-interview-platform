@@ -11,7 +11,7 @@ module Api
         user.role ||= 'user' # Default role to 'user' if not provided
 
         if user.save
-          token = JsonWebToken.encode({ user_id: user.id, role: user.role })
+          token = JsonWebToken.encode({ user_id: user.id, role: user.role, scheme: user.organization.scheme }) # Ensure scheme is included
           json_response({ token: token, user: { id: user.id, email: user.email, role: user.role } }, :created)
         else
           json_error(user.errors.full_messages, :bad_request)

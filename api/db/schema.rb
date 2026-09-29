@@ -94,7 +94,7 @@ ActiveRecord::Schema[7.0].define(version: 2026_08_19_000000) do
     t.index ["vacancy_id"], name: "index_fit_gap_reports_on_vacancy_id"
   end
 
-  create_table "organizations", force: :cascade do |t|
+  create_table "organizations", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.string "name", limit: 255, null: false
     t.string "scheme", limit: 255, null: false
     t.string "identifier", limit: 255, null: false
@@ -181,9 +181,11 @@ ActiveRecord::Schema[7.0].define(version: 2026_08_19_000000) do
     t.string "email", limit: 255, null: false
     t.string "password_digest", null: false
     t.string "role", limit: 20, default: "user", null: false
+    t.uuid "organization_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["email"], name: "idx_ai_interview_users_email", unique: true
+    t.index ["organization_id"], name: "index_users_on_organization_id"
   end
 
   create_table "vacancies", force: :cascade do |t|
@@ -215,5 +217,6 @@ ActiveRecord::Schema[7.0].define(version: 2026_08_19_000000) do
   add_foreign_key "portfolios", "sessions"
   add_foreign_key "sessions", "assessments"
   add_foreign_key "transcript_turns", "sessions"
+  add_foreign_key "users", "organizations"
   add_foreign_key "vacancy_skills", "vacancies"
 end

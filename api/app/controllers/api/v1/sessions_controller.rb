@@ -10,6 +10,10 @@ module Api
 
       # GET /api/v1/assessments/:assessment_id/sessions
       def index
+        puts "DEBUG: SessionsController#index - params[:assessment_id]: #{params[:assessment_id].inspect}"
+        puts "DEBUG: SessionsController#index - params[:assessment_id] class: #{params[:assessment_id].class}"
+        puts "DEBUG: SessionsController#index - current_tenant_id: #{current_tenant_id}"
+        puts "DEBUG: SessionsController#index - Organization.find_by(id: current_tenant_id): #{Organization.find_by(id: current_tenant_id).inspect}"
         assessment = Assessment.find(params[:assessment_id])
         sessions = assessment.sessions.order(created_at: :desc)
 
