@@ -7,9 +7,21 @@ WORKDIR /app
 # Set frontend non-interactive to prevent hanging during build
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install PostgreSQL client libraries, NodeJS and other build essentials
-RUN apt-get update -y && apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends build-essential libpq-dev nodejs && \
+# Install build essentials and PostgreSQL client libraries
+RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until && \
+    sed -i '/bullseye-security/d' /etc/apt/sources.list && \
+    echo "deb http://snapshot.debian.org/archive/debian-security/20240310T110000Z bullseye-security main contrib non-free" >> /etc/apt/sources.list && \
+    echo "deb http://snapshot.debian.org/archive/debian/20240310T110000Z bullseye main contrib non-free" >> /etc/apt/sources.list && \
+    apt-get update -y && \
+    apt-get install -y --no-install-recommends build-essential libpq-dev && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
+
+# Install Node.js from NodeSource (more reliable for specific versions)
+RUN apt-get update -y && \
+    apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
+    apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/* && \
     apt-get clean
 
