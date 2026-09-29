@@ -30,7 +30,7 @@ vertex_ai_credentials.json
 
 # Docker
 .dockerignore
-docker-compose.yml
+# docker-compose.yml
 Dockerfile
 /tmp/build
 /vendor/bundle
