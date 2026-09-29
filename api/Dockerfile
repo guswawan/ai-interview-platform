@@ -1,40 +1,26 @@
-FROM ruby:3.3.2 AS builder
+# Use an official Ruby runtime as a parent image
+FROM ruby:3.3.2-slim-bullseye
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  build-essential \
-  git \
-  libpq-dev \
-  tzdata \
-  libjemalloc2 \
-  && rm -rf /var/lib/apt/lists/*
+# Set working directory
+WORKDIR /app
 
-WORKDIR /ai-interview
+# Install PostgreSQL client libraries and other build essentials
+RUN apt-get update -qq && apt-get install -y build-essential libpq-dev nodejs
 
-COPY Gemfile Gemfile.lock ./
-RUN bundle config set --local without 'development test' && \
-    bundle install --deployment --frozen --jobs 4
+# Install Bundler
+RUN gem install bundler:2.5.11
 
+# Copy Gemfile and Gemfile.lock
+COPY Gemfile Gemfile.lock ./ 
+
+# Install dependencies
+RUN bundle install --jobs=$(nproc) --without development test
+
+# Copy the rest of the application code
 COPY . .
 
-# ============================================================================
+# Expose port 3000 to the Docker host
+EXPOSE 3000
 
-FROM ruby:3.3.2
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-  libpq-dev \
-  tzdata \
-  libjemalloc2 \
-  && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /ai-interview
-
-COPY --from=builder /usr/local/bundle /usr/local/bundle
-COPY --from=builder /ai-interview /ai-interview
-
-ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
-
-RUN mkdir -p tmp/pids tmp/cache tmp/sockets log
-
-EXPOSE 3001
-
-CMD ["bundle", "exec", "puma", "-C", "config/puma.rb"]
+# Command to run the Rails server
+CMD ["bundle", "exec", "rails", "s", "-b", "0.0.0.0"]
