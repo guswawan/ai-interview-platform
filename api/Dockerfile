@@ -5,7 +5,7 @@ FROM ruby:3.3.2-slim-bullseye
 WORKDIR /app
 
 # Install PostgreSQL client libraries and other build essentials
-RUN apt-get update -qq && apt-get install -y build-essential libpq-dev nodejs
+RUN apt-get update -qq && apt-get install -y --fix-missing build-essential libpq-dev nodejs
 
 # Install Bundler
 RUN gem install bundler:2.5.11
