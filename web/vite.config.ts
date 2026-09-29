@@ -26,4 +26,12 @@ export default defineConfig({
             },
         },
     },
+    server: {
+        port: 5174, // Ensure it runs on the expected port
+        host: true, // Listen on all network interfaces
+        allowedHosts: [
+            'rakamin.agusetyawan.com',
+            // Add other hosts if needed, e.g., 'localhost', '127.0.0.1'
+        ],
+    },
 });
