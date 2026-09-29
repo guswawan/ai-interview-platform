@@ -4,8 +4,14 @@ FROM ruby:3.3.2-slim-bullseye
 # Set working directory
 WORKDIR /app
 
-# Install PostgreSQL client libraries and other build essentials
-RUN apt-get update -qq && apt-get install -y --fix-missing build-essential libpq-dev nodejs
+# Set frontend non-interactive to prevent hanging during build
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install PostgreSQL client libraries, NodeJS and other build essentials
+RUN apt-get update -y && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends build-essential libpq-dev nodejs && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
 
 # Install Bundler
 RUN gem install bundler:2.5.11
