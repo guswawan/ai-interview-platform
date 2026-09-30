@@ -61,7 +61,10 @@ export default function AssessmentListPage() {
   useEffect(() => {
     assessmentsApi
       .list()
-      .then((res) => setAssessments(res.data.assessments))
+      .then((res) => {
+        console.log("Assessments API response:", res.data.assessments);
+        setAssessments(res.data.assessments);
+      })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
   }, []);
